@@ -6,25 +6,16 @@ import com.strumenta.antlrkotlin.parsers.generated.SQLiteParserBaseVisitor
 import org.antlr.v4.kotlinruntime.CharStreams
 import org.antlr.v4.kotlinruntime.CommonTokenStream
 import org.antlr.v4.kotlinruntime.Token
-import org.antlr.v4.kotlinruntime.TokenStreamRewriter
 import org.antlr.v4.kotlinruntime.tree.RuleNode
 import org.antlr.v4.kotlinruntime.tree.SyntaxTree
 import org.antlr.v4.kotlinruntime.tree.TerminalNode
 import org.antlr.v4.kotlinruntime.tree.Tree
 import java.io.File
+import kotlin.math.max
 
-// https://people.inf.ethz.ch/suz/publications/icse06-hdd.pdf
-
-private class Listener(
-    private val parser: SQLiteParser,
+private class QueryPrinter(
     private val needMap: Map<Tree, Boolean>
 ) : SQLiteParserBaseVisitor<String>() {
-
-    var rewriter = TokenStreamRewriter(parser.tokenStream)
-
-    fun reset() {
-        rewriter = TokenStreamRewriter(parser.tokenStream)
-    }
 
     private fun needed(node: Tree) = needMap.getOrDefault(node, true)
 
@@ -34,11 +25,10 @@ private class Listener(
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             if (!needed(child)) continue
-            append(child.accept(this@Listener).trim())
+            append(child.accept(this@QueryPrinter).trim())
             append(" ")
         }
     }
-
 
     override fun visitTerminal(node: TerminalNode) =
         if (node.symbol.type == Token.EOF) ""
@@ -62,31 +52,22 @@ fun main() {
     val needMap = mutableMapOf<Tree, Boolean>()
     fun needed(node: Tree) = needMap.getOrDefault(node, true)
 
-    fun tagNodes(node: SyntaxTree, level: Int): List<SyntaxTree> =
+    fun getNodesOfLevel(node: SyntaxTree, level: Int): List<SyntaxTree> =
         if (!needed(node)) emptyList()
         else if (level == 0) listOf(node)
         else if (node.childCount == 0) emptyList()
         else List(node.childCount) { node.getChild(it) }
             .map { it as SyntaxTree }
             .filter { needed(it) }
-            .flatMap {
-                if (level > 0) tagNodes(it, level - 1)
-                else listOf(it)
-            }
+            .flatMap { getNodesOfLevel(it, level - 1) }
 
-    fun query(): String {
-        val visitor = Listener(parser, needMap)
-        return visitor.visit(parse)
-    }
+    fun query(): String = QueryPrinter(needMap).visit(parse)
 
     fun test(): Boolean {
         val sql = query()
-//        println("Testing: $sql")
         val file = File.createTempFile("reduced_query", ".sql")
         file.writeText(sql)
-        val success = testFile(file)
-//        println("Success: $success")
-        return success
+        return testFile(file)
     }
 
     fun ddmin(nodes: List<SyntaxTree>, n0: Int = 2): List<SyntaxTree> {
@@ -99,21 +80,14 @@ fun main() {
             for ((d, delta) in deltas.withIndex()) {
                 for (node in nodes) needMap[node] = false
                 for (node in delta) needMap[node] = true
-                if (test()) {
-                    println("Delta!")
-                    return ddmin(delta)
-                }
+                if (test()) return ddmin(delta)
 
                 val complement = deltas.filterIndexed { i, _ -> i != d }.flatten()
                 for (node in nodes) needMap[node] = false
                 for (node in complement) needMap[node] = true
-                if (test()) {
-                    println("Complement")
-                    return ddmin(complement, n - 1)
-                }
+                if (test()) return ddmin(complement, n - 1)
             }
         }
-        println("Done!")
         return nodes
     }
 
@@ -122,16 +96,16 @@ fun main() {
         for (node in minconfig) needMap[node] = true
     }
 
-    var nodes = tagNodes(parse, 0)
+    var nodes = getNodesOfLevel(parse, 0)
     var level = 0
     while (nodes.isNotEmpty()) {
         println("Level: $level")
+        println("Nodes: ${nodes.size}")
         val minconfig = ddmin(nodes)
         println("Minconfig: ${minconfig.size}")
         prune(nodes, minconfig)
         ++level
-        nodes = tagNodes(parse, level)
-        println("Nodes: ${nodes.size}")
+        nodes = getNodesOfLevel(parse, level)
     }
 
     println(query())
