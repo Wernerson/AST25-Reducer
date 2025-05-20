@@ -3,6 +3,11 @@ package net.sebyte
 import com.strumenta.antlrkotlin.parsers.generated.SQLiteLexer
 import com.strumenta.antlrkotlin.parsers.generated.SQLiteParser
 import com.strumenta.antlrkotlin.parsers.generated.SQLiteParserBaseVisitor
+import com.sun.tools.javac.tree.TreeInfo.args
+import kotlinx.cli.ArgParser
+import kotlinx.cli.ArgType
+import kotlinx.cli.default
+import kotlinx.cli.required
 import org.antlr.v4.kotlinruntime.CharStreams
 import org.antlr.v4.kotlinruntime.CommonTokenStream
 import org.antlr.v4.kotlinruntime.Token
@@ -36,12 +41,14 @@ private class QueryPrinter(
         else ""
 }
 
-fun testFile(file: File) = ProcessBuilder("./check.sh", file.absolutePath)
-    .start()
-    .waitFor() == 0
+fun main(args: Array<String>) {
+    val argParser = ArgParser("reducer")
+    val fileName by argParser.option(ArgType.String, "query", "q", "Query file").required()
+    val testName by argParser.option(ArgType.String, "test", "t", "Test script").required()
+    val verbose by argParser.option(ArgType.Boolean, "verbose", "v", "Print logs").default(false)
+    argParser.parse(args)
 
-fun main() {
-    val file = File("./queries/query20/original_test.sql")
+    val file = File(fileName)
     val stream = CharStreams.fromFileName(file.absolutePath)
     val lexer = SQLiteLexer(stream)
     val tokens = CommonTokenStream(lexer)
@@ -51,6 +58,14 @@ fun main() {
 
     val needMap = mutableMapOf<Tree, Boolean>()
     fun needed(node: Tree) = needMap.getOrDefault(node, true)
+
+    fun log(any: Any?) {
+        if (verbose) println("-- $any")
+    }
+
+    fun testFile(file: File) = ProcessBuilder(testName, file.absolutePath)
+        .start()
+        .waitFor() == 0
 
     fun getNodesOfLevel(node: SyntaxTree, level: Int): List<SyntaxTree> =
         if (!needed(node)) emptyList()
@@ -71,7 +86,7 @@ fun main() {
     }
 
     fun ddmin(nodes: List<SyntaxTree>, n0: Int = 2): List<SyntaxTree> {
-        for (n in n0..nodes.size) {
+        for (n in max(2, n0)..nodes.size) {
             val deltas: List<List<SyntaxTree>> = List(n) {
                 val size = nodes.size / n
                 nodes.subList(it * size, (it + 1) * size)
@@ -99,10 +114,10 @@ fun main() {
     var nodes = getNodesOfLevel(parse, 0)
     var level = 0
     while (nodes.isNotEmpty()) {
-        println("Level: $level")
-        println("Nodes: ${nodes.size}")
+        log("Level: $level")
+        log("Nodes: ${nodes.size}")
         val minconfig = ddmin(nodes)
-        println("Minconfig: ${minconfig.size}")
+        log("Minconfig: ${minconfig.size}")
         prune(nodes, minconfig)
         ++level
         nodes = getNodesOfLevel(parse, level)
