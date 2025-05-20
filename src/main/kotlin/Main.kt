@@ -3,7 +3,6 @@ package net.sebyte
 import com.strumenta.antlrkotlin.parsers.generated.SQLiteLexer
 import com.strumenta.antlrkotlin.parsers.generated.SQLiteParser
 import com.strumenta.antlrkotlin.parsers.generated.SQLiteParserBaseVisitor
-import com.sun.tools.javac.tree.TreeInfo.args
 import kotlinx.cli.ArgParser
 import kotlinx.cli.ArgType
 import kotlinx.cli.default
@@ -41,6 +40,30 @@ private class QueryPrinter(
         else ""
 }
 
+private class TokenCounter(
+    private val needMap: Map<Tree, Boolean> = emptyMap(),
+) : SQLiteParserBaseVisitor<Int>() {
+
+    private fun needed(node: Tree) = needMap.getOrDefault(node, true)
+
+    override fun defaultResult() = 0
+
+    override fun visitChildren(node: RuleNode): Int {
+        var count = 0
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (!needed(child)) continue
+            count += child.accept(this@TokenCounter)
+        }
+        return count
+    }
+
+    override fun visitTerminal(node: TerminalNode) =
+        if (node.symbol.type == Token.EOF) 0
+        else if (needed(node)) 1
+        else 0
+}
+
 fun main(args: Array<String>) {
     val argParser = ArgParser("reducer")
     val fileName by argParser.option(ArgType.String, "query", "q", "Query file").required()
@@ -67,18 +90,28 @@ fun main(args: Array<String>) {
         .start()
         .waitFor() == 0
 
-    fun getNodesOfLevel(node: SyntaxTree, level: Int): List<SyntaxTree> =
+    fun getNodesOfLevel(level: Int, node: SyntaxTree = parse): List<SyntaxTree> =
         if (!needed(node)) emptyList()
         else if (level == 0) listOf(node)
         else if (node.childCount == 0) emptyList()
         else List(node.childCount) { node.getChild(it) }
             .map { it as SyntaxTree }
             .filter { needed(it) }
-            .flatMap { getNodesOfLevel(it, level - 1) }
+            .flatMap { getNodesOfLevel(level - 1, it) }
+
+    fun allNodes(node: SyntaxTree = parse): List<SyntaxTree> =
+        if (!needed(node)) emptyList()
+        else if (node.childCount == 0) listOf(node)
+        else List(node.childCount) { node.getChild(it) }
+            .map { it as SyntaxTree }
+            .filter { needed(it) }
+            .flatMap { allNodes(it) }
 
     fun query(): String = QueryPrinter(needMap).visit(parse)
 
+    var tests = 0
     fun test(): Boolean {
+        ++tests
         val sql = query()
         val file = File.createTempFile("reduced_query", ".sql")
         file.writeText(sql)
@@ -111,7 +144,7 @@ fun main(args: Array<String>) {
         for (node in minconfig) needMap[node] = true
     }
 
-    var nodes = getNodesOfLevel(parse, 0)
+    var nodes = getNodesOfLevel(0)
     var level = 0
     while (nodes.isNotEmpty()) {
         log("Level: $level")
@@ -120,8 +153,23 @@ fun main(args: Array<String>) {
         log("Minconfig: ${minconfig.size}")
         prune(nodes, minconfig)
         ++level
-        nodes = getNodesOfLevel(parse, level)
+        nodes = getNodesOfLevel(level)
     }
 
+    log("$tests tests before final pass")
+    nodes = allNodes()
+    val minconfig = ddmin(nodes)
+    prune(nodes, minconfig)
+    log("Final pass from ${nodes.size} to ${minconfig.size}")
+
+    if (verbose) {
+        val original = TokenCounter().visit(parse)
+        val reduced = TokenCounter(needMap).visit(parse)
+        log("Original Query: $original tokens")
+        log("Reduced Query: $reduced tokens")
+        val reduction = (1 - reduced.toDouble() / original) * 100
+        log("%.4f%% reduction".format(reduction))
+        log("$tests tests")
+    }
     println(query())
 }
