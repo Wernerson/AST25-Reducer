@@ -69,14 +69,15 @@ fun main(args: Array<String>) {
     val fileName by argParser.option(ArgType.String, "query", "q", "Query file").required()
     val testName by argParser.option(ArgType.String, "test", "t", "Test script").required()
     val verbose by argParser.option(ArgType.Boolean, "verbose", "v", "Print logs").default(false)
-    val lastPass by argParser.option(
+    val quick by argParser.option(
         ArgType.Boolean,
-        "last-pass",
+        "quick",
         description = "Do one last delta debugging pass after hierarchical delta debugging"
-    ).default(true)
+    ).default(false)
     argParser.parse(args)
 
     val file = File(fileName)
+    val reducedFile = File("./query.sql")
     val stream = CharStreams.fromFileName(file.absolutePath)
     val lexer = SQLiteLexer(stream)
     val tokens = CommonTokenStream(lexer)
@@ -91,9 +92,7 @@ fun main(args: Array<String>) {
         if (verbose) println("-- $any")
     }
 
-    fun testFile(file: File) = ProcessBuilder(testName, file.absolutePath)
-        .start()
-        .waitFor() == 0
+    fun runScript() = ProcessBuilder(testName).start().waitFor() == 0
 
     fun getNodesOfLevel(level: Int, node: SyntaxTree = parse): List<SyntaxTree> =
         if (!needed(node)) emptyList()
@@ -118,9 +117,8 @@ fun main(args: Array<String>) {
     fun test(): Boolean {
         ++tests
         val sql = query()
-        val file = File.createTempFile("reduced_query", ".sql")
-        file.writeText(sql)
-        return testFile(file)
+        reducedFile.writeText(sql)
+        return runScript()
     }
 
     fun ddmin(nodes: List<SyntaxTree>, n0: Int = 2): List<SyntaxTree> {
@@ -161,7 +159,7 @@ fun main(args: Array<String>) {
         nodes = getNodesOfLevel(level)
     }
 
-    if (lastPass) {
+    if (!quick) {
         log("$tests tests before final pass")
         nodes = allNodes()
         val minconfig = ddmin(nodes)
@@ -178,5 +176,7 @@ fun main(args: Array<String>) {
         log("%.4f%% reduction".format(reduction))
         log("$tests tests")
     }
-    println(query())
+    val final = query()
+    println(final)
+    reducedFile.writeText(final)
 }

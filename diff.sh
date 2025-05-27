@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
-output=$(sqlite3-3.26.0 < $1)
-ooutput=$(sqlite3-3.39.4 < $1)
+TEST_CASE="${TEST_CASE_LOCATION:-./query.sql}"
+
+output=$(sqlite3-3.26.0 < $TEST_CASE)
+ooutput=$(sqlite3-3.39.4 < $TEST_CASE)
 
 if [[ "$output" == "$ooutput" ]]
 then
