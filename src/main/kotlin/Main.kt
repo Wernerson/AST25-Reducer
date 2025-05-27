@@ -69,6 +69,11 @@ fun main(args: Array<String>) {
     val fileName by argParser.option(ArgType.String, "query", "q", "Query file").required()
     val testName by argParser.option(ArgType.String, "test", "t", "Test script").required()
     val verbose by argParser.option(ArgType.Boolean, "verbose", "v", "Print logs").default(false)
+    val lastPass by argParser.option(
+        ArgType.Boolean,
+        "last-pass",
+        description = "Do one last delta debugging pass after hierarchical delta debugging"
+    ).default(true)
     argParser.parse(args)
 
     val file = File(fileName)
@@ -156,11 +161,13 @@ fun main(args: Array<String>) {
         nodes = getNodesOfLevel(level)
     }
 
-    log("$tests tests before final pass")
-    nodes = allNodes()
-    val minconfig = ddmin(nodes)
-    prune(nodes, minconfig)
-    log("Final pass from ${nodes.size} to ${minconfig.size}")
+    if (lastPass) {
+        log("$tests tests before final pass")
+        nodes = allNodes()
+        val minconfig = ddmin(nodes)
+        prune(nodes, minconfig)
+        log("Final pass from ${nodes.size} to ${minconfig.size}")
+    }
 
     if (verbose) {
         val original = TokenCounter().visit(parse)
