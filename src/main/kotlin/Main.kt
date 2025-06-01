@@ -16,6 +16,9 @@ import org.antlr.v4.kotlinruntime.tree.TerminalNode
 import org.antlr.v4.kotlinruntime.tree.Tree
 import java.io.File
 import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlin.time.DurationUnit
+import kotlin.time.measureTime
 
 private class QueryPrinter(
     private val needMap: Map<Tree, Boolean>
@@ -68,11 +71,12 @@ fun main(args: Array<String>) {
     val argParser = ArgParser("reducer")
     val fileName by argParser.option(ArgType.String, "query", "q", "Query file").required()
     val testName by argParser.option(ArgType.String, "test", "t", "Test script").required()
-    val verbose by argParser.option(ArgType.Boolean, "verbose", "v", "Print logs").default(false)
+    val verbose by argParser.option(ArgType.Boolean, "verbose", "v", "Print verbose logs").default(false)
+    val stats by argParser.option(ArgType.Boolean, "stats", "s", "Print stats").default(false)
     val quick by argParser.option(
         ArgType.Boolean,
         "quick",
-        description = "Do one last delta debugging pass after hierarchical delta debugging"
+        description = "Skip last delta debugging pass after hierarchical delta debugging"
     ).default(false)
     argParser.parse(args)
 
@@ -88,7 +92,7 @@ fun main(args: Array<String>) {
     val needMap = mutableMapOf<Tree, Boolean>()
     fun needed(node: Tree) = needMap.getOrDefault(node, true)
 
-    fun log(any: Any?) {
+    fun verbose(any: Any?) {
         if (verbose) println("-- $any")
     }
 
@@ -148,33 +152,57 @@ fun main(args: Array<String>) {
     }
 
     var nodes = getNodesOfLevel(0)
-    var level = 0
-    while (nodes.isNotEmpty()) {
-        log("Level: $level")
-        log("Nodes: ${nodes.size}")
-        val minconfig = ddmin(nodes)
-        log("Minconfig: ${minconfig.size}")
-        prune(nodes, minconfig)
-        ++level
-        nodes = getNodesOfLevel(level)
+    val firstTime = measureTime {
+        var level = 0
+        while (nodes.isNotEmpty()) {
+            verbose("Level: $level")
+            verbose("Nodes: ${nodes.size}")
+            val minconfig = ddmin(nodes)
+            verbose("Minconfig: ${minconfig.size}")
+            prune(nodes, minconfig)
+            ++level
+            nodes = getNodesOfLevel(level)
+        }
     }
 
-    if (!quick) {
-        log("$tests tests before final pass")
-        nodes = allNodes()
-        val minconfig = ddmin(nodes)
-        prune(nodes, minconfig)
-        log("Final pass from ${nodes.size} to ${minconfig.size}")
+    val beforeFinal = TokenCounter(needMap).visit(parse)
+    val beforeFinalTests = tests
+    val secondTime = measureTime {
+        if (!quick) {
+            verbose("$tests tests before final pass")
+            nodes = allNodes()
+            val minconfig = ddmin(nodes)
+            prune(nodes, minconfig)
+            verbose("Final pass from ${nodes.size} to ${minconfig.size}")
+        }
     }
 
-    if (verbose) {
+    if (stats) {
         val original = TokenCounter().visit(parse)
         val reduced = TokenCounter(needMap).visit(parse)
-        log("Original Query: $original tokens")
-        log("Reduced Query: $reduced tokens")
+        verbose("Original Query: $original tokens")
+        verbose("Reduced Query: $reduced tokens")
         val reduction = (1 - reduced.toDouble() / original) * 100
-        log("%.4f%% reduction".format(reduction))
-        log("$tests tests")
+        verbose("%.4f%% reduction".format(reduction))
+        verbose("$tests tests")
+        verbose("HDD: ${firstTime.inWholeSeconds}s")
+        verbose("Last pass: ${secondTime.inWholeSeconds}s")
+        verbose("Total time: ${(firstTime + secondTime).inWholeSeconds}s")
+        println("""
+            /*
+            Summary:
+            $original original
+            $beforeFinal before final (-${100.0 - (1000.0 * beforeFinal / original).roundToInt() / 10.0}%)
+            $reduced final (-${(100.0 - (1000.0 * reduced / original).roundToInt() / 10.0)}%)
+            
+            HDD: ${firstTime.toString(DurationUnit.SECONDS, 1)}
+            Last pass: ${secondTime.toString(DurationUnit.SECONDS, 1)}
+            Total: ${(firstTime + secondTime).toString(DurationUnit.SECONDS, 1)}
+            
+            $beforeFinalTests before final
+            $tests total
+            */
+        """.trimIndent())
     }
     val final = query()
     println(final)
