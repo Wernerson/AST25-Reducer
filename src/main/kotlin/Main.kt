@@ -87,7 +87,7 @@ fun main(args: Array<String>) {
     val tokens = CommonTokenStream(lexer)
     val parser = SQLiteParser(tokens)
     val parse = parser.parse()
-    if (parser.numberOfSyntaxErrors > 0) error("Syntax error!")
+    if (parser.numberOfSyntaxErrors > 0) println("-- The query contains an SQL query syntax error! Might be a dot commands (.some command) which we currently cannot handle.")
 
     val needMap = mutableMapOf<Tree, Boolean>()
     fun needed(node: Tree) = needMap.getOrDefault(node, true)
