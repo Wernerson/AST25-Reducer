@@ -5,5 +5,4 @@ curl -s "https://get.sdkman.io" | bash
 source /home/test/.sdkman/bin/sdkman-init.sh
 sdk install java 23.0.2-graal
 ./gradlew nativeCompile
-sudo cp ./build/native/nativeCompile/AST-fuzzer /usr/bin/test-db
-sudo cp -r ./configs/ ../configs/
+sudo cp ./build/native/nativeCompile/AST-reducer /usr/bin/test-db

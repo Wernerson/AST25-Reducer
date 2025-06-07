@@ -1,5 +1,10 @@
 FROM theosotr/sqlite3-test:latest
-# Download, build and install AST25-fuzzer tool as test-db
-RUN git clone https://github.com/Wernerson/AST25-Fuzzer.git &&  \
-    cd AST25-Fuzzer &&  \
-    bash ./install.sh
+# Install prerequisites & dependencies
+RUN sudo apt install wget unzip -y
+
+# Copy the source code to build the reducer
+RUN mkdir /home/test/code
+COPY ./src.zip /home/test/code/src.zip
+RUN cd /home/test/code &&  \
+    unzip src.zip && \
+    bash install.sh
